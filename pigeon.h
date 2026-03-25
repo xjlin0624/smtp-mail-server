@@ -14,6 +14,7 @@
 #include <dirent.h>
 #include <sys/stat.h>
 #include <fcntl.h>
+#include <ctype.h>
 #define DEBUG
 #define VERSION     "0.1"
 #define PORT        2525
@@ -56,9 +57,17 @@ struct s_email {
 };
 typedef struct s_email Email;
 
+enum e_cmd_ {
+    ehlo = 1,
+    mailfrom = 2,
+    rcptto = 3,
+    data_ = 4,
+    quit = 5
+};
+typedef enum e_cmd_ Cmd_;
+
 struct s_command {
-    int8 cmd[64];
-    int8 subcmd[64];
+    Cmd_ cmd;
     int8 args[128];
 };
 typedef struct s_command Command;
@@ -111,6 +120,8 @@ typedef struct s_server Server;
     (volatile void)senddata_(s, c, _buf);   \
 } while(0)
 
+int8 *loweruntil(int8*, int8);
+int8 *copyuntil(int8*, int8, int8);
 bool deliver(Email*, User*);
 int8 *email2user(int8*);
 User *getuser(int8*);
@@ -126,6 +137,7 @@ void cim(int8*);
 int32 setup(void);
 void senddata_(int32, int16, int8*);
 void mainloop(int32);
+Command *parse(int8*);
 void childloop(Connection*);
 int main(int, char**);
 

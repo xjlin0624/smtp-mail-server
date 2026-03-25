@@ -3,6 +3,39 @@
 
 bool continuation;
 
+int8 *copyuntil(int8* str, int8  start, int8 stop) {
+    int8 *p, *e;
+
+    if (!str) {
+        return $1 0;
+    }
+
+    p = findchar(str, start);
+    if (!p) 
+        p = str;
+
+    e = findchar(p, stop);
+    if (e){
+        e--; 
+        *e = 0;
+    }
+
+    return p;
+}
+
+int8 *loweruntil(int8* str, int8 c) {
+    int8 *p;
+
+    if (!str) {
+        return $1 0;
+    }
+    for (p=str; (*p) && (*p != c); p++) {
+        *p = tolower(*p);
+    }
+
+    return str;
+}
+
 void cim(int8 *dir) {
     DIR *fd;
 
@@ -246,6 +279,51 @@ void senddata_(int32 s, int16 code, int8 *data) {
     return ;
 }
 
+Command *parse(int8 *s) {
+    int16 n;
+    Command *ret;
+    Cmd_ cmd;
+    int8 *p, *str, *args;
+
+    assert(s);
+    str = loweruntil(s, " ");
+
+    if (!strncmp($c str, "ehlo ", (n=$2 5))) {
+        cmd = ehlo;
+        args = str + n;
+    }
+    else if (!strncmp($c str, "data", (n=$2 4))) {
+        cmd = data;
+        args = $1 0;
+    }
+    else if (!strncmp($c str, "quit", (n=$2 4))) {
+        cmd = quit;
+        args = $1 0;
+    }
+    else if (!strncmp($c str, "mail from:", (n=$2 10))) {
+        cmd = mailfrom;
+        args = copyuntil((str + n), '<', '>');
+    }
+    else if (!strncmp($c str, "rcpt to:", (n=$2 8))) {
+        cmd = rcptto;
+        args = copyuntil((str + n), '<', '>');
+    }
+    else { 
+        return (Command *)0;
+    }
+
+    n = sizeof(struct s_command);
+    ret = (Command *)malloc($i n);
+    zero($1 ret, n);
+
+    ret->cmd = cmd;
+    strncpy($c ret->args, $c args, 127);
+
+    return ret;
+
+}
+
+
 void childloop(Connection *c) {
     Command *cmd;
     int8 buf[2048];
@@ -259,7 +337,7 @@ void childloop(Connection *c) {
         return;
     }
 
-    // cmd = parse(buf);
+    cmd = parse(buf);
 }
 
 void mainloop(int32 s) {
@@ -304,6 +382,7 @@ void mainloop(int32 s) {
 
 int main(int argc, char *argv[]) {
     int32 s;
+
     s = setup();
     assert(s > 0);
     log("Listening on port %d\n", PORT);
@@ -360,4 +439,4 @@ int test(int argc, char *argv[]) {
 }
 */
 
-// lesson 4 00:01:44
+// lesson 5 00:03:33
