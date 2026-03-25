@@ -211,7 +211,7 @@ int8 *mailheader(Email *email) {
     return buf;
 }
 
-int32 listen() {
+int32 setup() {
     struct sockaddr_in sock;
     signed int tmp;
     int32 s;
@@ -259,7 +259,7 @@ void childloop(Connection *c) {
         return;
     }
 
-    cmd = parse(buf);
+    // cmd = parse(buf);
 }
 
 void mainloop(int32 s) {
@@ -269,6 +269,7 @@ void mainloop(int32 s) {
     int32 c;
 
     assert(s > 0);
+    size = sizeof(struct sockaddr);
     tmp = accept($i s, (struct sockaddr *)&sock, &size);
     if (tmp < 1) {
         log("Lost incoming connection\n");
@@ -279,7 +280,7 @@ void mainloop(int32 s) {
     c = $4 tmp;
     tmp = fork();
     if (tmp) {
-        log("Connection from %s established\n", todotted(sock->sin_addr->s_addr));
+        log("Connection from %s established\n", todotted(sock.sin_addr.s_addr));
         sleep(1);
         return;
     }
@@ -287,10 +288,10 @@ void mainloop(int32 s) {
         size = sizeof(struct s_connection);
         conn = (Connection *)malloc(size);
         zero($1 conn, $2 size);
-        conn-> = c;
+        conn->s = c;
         conn->state = connected;
 
-        senddate(c, 220, "Connected to the Carrier Pigeon v%s mailserver.",
+        senddata(c, 220, "Connected to the Carrier Pigeon v%s mailserver.",
             VERSION
         );
 
@@ -301,8 +302,20 @@ void mainloop(int32 s) {
     }
 }
 
-
 int main(int argc, char *argv[]) {
+    int32 s;
+    s = setup();
+    assert(s > 0);
+    log("Listening on port %d\n", PORT);
+    do mainloop(s);
+    while(1);
+    close($i s);
+
+    return 0;
+}
+
+/*
+int test(int argc, char *argv[]) {
     Email *email;
     int8 *username;
     User *user;
@@ -345,5 +358,6 @@ int main(int argc, char *argv[]) {
         printf("No such user\n");
     return 0;
 }
+*/
 
 // lesson 4 00:01:44

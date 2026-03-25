@@ -16,8 +16,8 @@
 #include <fcntl.h>
 #define DEBUG
 #define VERSION     "0.1"
-#define PORT        25
-#define ip          INETADDR_ANY
+#define PORT        2525
+#define IP          INADDR_ANY
 
 typedef unsigned char int8;
 typedef unsigned short int int16;
@@ -123,7 +123,7 @@ Server *mkserver(int8*, int8*, int32);
 int8 *findchar(int8*, int8);
 MsgID *mkid(int8*);
 void cim(int8*);
-int32 listen(void);
+int32 setup(void);
 void senddata_(int32, int16, int8*);
 void mainloop(int32);
 void childloop(Connection*);
