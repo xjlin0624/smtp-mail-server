@@ -2,6 +2,7 @@
 #include "pigeon.h"
 
 bool continuation;
+int8 *ourdomain;
 
 int8 *copyuntil(int8* str, int8  start, int8 stop) {
     int8 *p, *e;
@@ -317,7 +318,8 @@ Command *parse(int8 *s) {
     zero($1 ret, n);
 
     ret->cmd = cmd;
-    strncpy($c ret->args, $c args, 127);
+    if (args)
+        strncpy($c ret->args, $c args, 127);
 
     return ret;
 
@@ -338,6 +340,45 @@ void childloop(Connection *c) {
     }
 
     cmd = parse(buf);
+    if (!cmd) {
+        senddata(c->s, 500, "%s", "Syntax error, command unrecognized");
+        return;
+    }
+
+    switch (cmd->cmd) {
+
+        case quit:
+            senddata(c->s, 221, "%s", "Goodbye");
+            close(c->s);
+            sleep(1);
+            continuation = false;
+            break;
+        
+        case ehlo:
+            /* CONNECTED */
+            if (c->state == connected) {
+                if (!strlen($c cmd->args)) {
+                    senddata(c->s, 501, 
+                        "%s", "Syntax error in parameters or arguments");
+                }
+                else {
+                    senddata(c->s, 250, "%s", ourdomain);
+                    c->state++;
+                }
+            }
+            else {
+                senddata(c->s, 503, 
+                    "%s\n", "Bad sequence of commands");
+            }
+
+            break;
+
+        case mailfrom:
+            /* HELLO RECEIVED STATE */
+
+            break;
+    }
+    return;
 }
 
 void mainloop(int32 s) {
@@ -359,6 +400,7 @@ void mainloop(int32 s) {
     tmp = fork();
     if (tmp) {
         log("Connection from %s established\n", todotted(sock.sin_addr.s_addr));
+        close(c);
         sleep(1);
         return;
     }
@@ -382,6 +424,13 @@ void mainloop(int32 s) {
 
 int main(int argc, char *argv[]) {
     int32 s;
+
+    if (argc < 2) {
+        fprintf(stderr, "Usage: %s <our domain>\n", *argv);
+        return -1;
+    }
+    else
+        ourdomain = loweruntil(argv[1], (int8)0);
 
     s = setup();
     assert(s > 0);
@@ -439,4 +488,4 @@ int test(int argc, char *argv[]) {
 }
 */
 
-// lesson 5 00:03:33
+// lesson 5 00:38:50
