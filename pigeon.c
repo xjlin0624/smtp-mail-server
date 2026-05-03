@@ -1,8 +1,10 @@
 /* pigeon.c */
 #include "pigeon.h"
+#include "config.h"
 
 bool continuation;
 int8 *ourdomain;
+
 
 int8 *copyuntil(int8* str, int8  start, int8 stop) {
     int8 *p, *e;
@@ -113,6 +115,20 @@ bool strmatch(int8 *haystack, int8 *needle) {
             if (!strncmp($c (p-1), $c needle, $i len))
                 return true;
     return false;
+};
+
+int8 *strmatch_(int8 *haystack, int8 *needle) {
+    int8 *p;
+    int16 len;
+
+    len = $2 strlen($c needle);
+    assert(haystack && needle && len);
+
+    for (p = findchar(haystack, *needle); p; p = findchar((p)?++p:$1 "", *needle))
+        if (p)
+            if (!strncmp($c (p-1), $c needle, $i len))
+                return (p-1);
+    return $1 0;
 };
 
 // bool strmatch(int8 *haystack, int8 *needle) {
@@ -270,7 +286,7 @@ void senddata_(int32 s, int16 code, int8 *data) {
     signed int tmp;
 
     zero(buf, 2048);
-    snprintf(buf, 2047, "%.03d-%s\n", $i code, $c data);
+    snprintf(buf, 2047, "%.03d %s\n", $i code, $c data);
     size = $2 strlen($c buf);
     assert(size);
     
@@ -288,20 +304,24 @@ Command *parse(int8 *s) {
 
     assert(s);
     str = loweruntil(s, " ");
+    cmd = none;
+    args = $c 0;
 
     if (!strncmp($c str, "ehlo ", (n=$2 5))) {
         cmd = ehlo;
         args = str + n;
     }
     else if (!strncmp($c str, "data", (n=$2 4))) {
-        cmd = data;
+        cmd = data_;
         args = $1 0;
     }
     else if (!strncmp($c str, "quit", (n=$2 4))) {
         cmd = quit;
         args = $1 0;
     }
-    else if (!strncmp($c str, "mail from:", (n=$2 10))) {
+    
+    str = loweruntil(s, ":");
+    if (!strncmp($c str, "mail from:", (n=$2 10))) {
         cmd = mailfrom;
         args = copyuntil((str + n), '<', '>');
     }
@@ -309,9 +329,9 @@ Command *parse(int8 *s) {
         cmd = rcptto;
         args = copyuntil((str + n), '<', '>');
     }
-    else { 
+    
+    if (!cmd) 
         return (Command *)0;
-    }
 
     n = sizeof(struct s_command);
     ret = (Command *)malloc($i n);
@@ -325,11 +345,181 @@ Command *parse(int8 *s) {
 
 }
 
+Email *recvdata(Connection *c) {
+    
+    bool err;
+    int8 cc;
+    int8 *p, *s;
+    bool b;
+    int8 *copy;
+    int16 n, size;
+    int8 buf[2];
+    int8 hdr[1024];
+    int8 data_[1024];
+    signed int tmp;
+    Email *ret;
+    MsgID *msgid;
+
+    err = false;
+    n = 0;
+    zero(hdr, 1024);
+    zero(data_, 1024);
+    zero(buf, 2);
+
+    p = hdr;
+    while ((tmp = read($i c->s, $c buf, 1)) > 0) {
+        cc = *buf;
+        
+        if (cc == '\r')
+            continue;
+        
+        n++;
+        *p++ = cc;
+        b = strmatch(hdr, "\n.\n");
+        if (!b && *data_)
+            b = strmatch(data_, "\n.\n");
+        if (b)
+            break;
+
+        if (!(*data_) && (cc == '\n')) {
+            b = strmatch(hdr, "\n\n");
+            if (b) {
+                p = data_;
+                n = 0;
+                continue;
+            }
+        }
+        if (n > 1022) {
+            err = true;    
+            break;
+        }
+    }
+
+    if (err) 
+        return (Email *)0;
+
+    size = sizeof(struct s_email) + n;
+    ret = (Email *)malloc(size);
+    zero($1 ret, size);
+
+    copy = $1 strdup($c hdr);
+    s = strmatch_(copy, $1 "From: ");
+    if (s && !(*c->src)) {
+        p = findchar(s, '\n');
+        if (p--)
+            *p = 0;
+        p = copyuntil((s+6), '<', '>');
+        if (p)
+            strncpy($c ret->src, $c p, 63);
+    }
+    else if (*c->src) 
+        strncpy($c ret->src, $c c->src, 63);
+
+    copy = $1 strdup($c hdr);
+    s = strmatch_(copy, $1 "To: ");
+    if (s && !(*c->dst)) {
+        p = findchar(s, '\n');
+        if (p--)
+            *p = 0;
+        p = copyuntil((s+4), '<', '>');
+        if (p)
+            strncpy($c ret->dst, $c p, 63);
+    }
+    else if (*c->dst) 
+        strncpy($c ret->dst, $c c->dst, 63);
+
+    copy = $1 strdup($c hdr);
+    s = strmatch_(copy, $1 "Subject: ");
+    if (s) {
+        p = findchar(s, '\n');
+        if (p--)
+            *p = 0;
+        strncpy($c ret->subject, $c (s+9), 127);
+    }
+
+    copy = $1 strdup($c hdr);
+    s = strmatch_(copy,$1 "Message-ID: ");
+    if (s) {
+        p = findchar(s, '\n');
+        if (p--)
+            *p = 0;
+        strncpy($c ret->id, $c (s+12), 127);
+    }
+
+    if (*ret->dst)
+        ret->domain = findchar(ret->dst, '@');
+    
+    if (*data_)
+        memcpy($c ret->data, $c data_, n);
+
+    if (!(*ret->src) || !(*ret->dst) || !(n)) {
+        free(ret);
+        return (Email *)0;
+    }
+    else if (!(*ret->id)) {
+        msgid = mkid(ret->domain);
+        if (!msgid) {
+            free(ret);
+            return (Email *)0;
+        }
+        strncpy($c ret->id, $c msgid, 127);
+    }
+
+    /*
+    log("Src: %s\n", ret->src);
+    log("Dst: %s\n", ret->dst);
+    log("Subject: %s\n", ret->subject);
+    log("Domain: %s\n", ret->domain);
+    log("MsgID: %s\n", ret->id);
+    log("Data: %s\n", ret->data);
+    */
+
+    return ret;
+
+}
+
+bool handleincoming(Email *email, Connection *c) {
+    int8 *p;
+    int8 **arr;
+    int8 *userstr;
+    User *user;
+    bool isallowed;
+    Server *s, *serv;
+    
+    if (!strcmp($c ourdomain, $c email->domain)) {
+        userstr = email2user(email->dst);
+        if (!userstr)
+            return false;
+        user = getuser(userstr);
+        if (!user) 
+            return false;
+        return deliver(email, user);
+    }
+
+    isallowed = false;
+    for (p = *whitelist; p; p++) {
+        if (inet_addr($c p) == c->ip)
+            isallowed = true;
+    }
+    if (!isallowed)
+        return false;
+    
+    serv = 0;
+    for (s = mx; *(s->domain); s++) 
+        if (!strcmp($c s->domain, $c email->domain))
+            serv = s;
+    if (!serv)
+        return false;
+    
+    return sendmail(email, serv);
+
+}
 
 void childloop(Connection *c) {
     Command *cmd;
     int8 buf[2048];
     signed int tmp;
+    Email *email;
 
     zero(buf, 2048);
     tmp = read($i c->s, $c buf, 2047);
@@ -348,9 +538,11 @@ void childloop(Connection *c) {
     switch (cmd->cmd) {
 
         case quit:
+            c->state = disconnecting;
             senddata(c->s, 221, "%s", "Goodbye");
             close(c->s);
             sleep(1);
+            c->state++;
             continuation = false;
             break;
         
@@ -362,22 +554,87 @@ void childloop(Connection *c) {
                         "%s", "Syntax error in parameters or arguments");
                 }
                 else {
-                    senddata(c->s, 250, "%s", ourdomain);
+                    senddata(c->s, 250, 
+                        "%s", ourdomain);
+                    strncpy($c c->domain, $c cmd->args, 63);
                     c->state++;
                 }
             }
             else {
                 senddata(c->s, 503, 
-                    "%s\n", "Bad sequence of commands");
+                    "%s", "Bad sequence of commands");
             }
 
             break;
 
         case mailfrom:
             /* HELLO RECEIVED STATE */
-
+            if (c->state == helo) {
+                if (!strlen($c cmd->args))
+                    senddata(c->s, 501, 
+                        "%s", "Syntax error in parameters or arguments");
+                else {
+                    senddata(c->s, 250, 
+                        "%s", "Ok");
+                    strncpy($c c->src, $c cmd->args, 63);
+                    c->state++;
+                }
+            }
+            else
+                senddata(c->s, 503, 
+                    "%s", "Bad sequence of commands");
+            
             break;
+        
+        case rcptto:
+            /* MAIL RECEIVED STATE */
+            if (c->state == mail) {
+                if (!strlen($c cmd->args))
+                    senddata(c->s, 501, 
+                        "%s", "Syntax error in parameters or arguments");
+                else {
+                    senddata(c->s, 250, 
+                        "%s", "Ok");
+                    strncpy($c c->dst, $c cmd->args, 63);
+                    c->state++;
+                }
+            }
+            else
+                senddata(c->s, 503, 
+                    "%s", "Bad sequence of commands");
+            
+            break;
+        
+        case data_:
+            /* RECIPIENT RECEIVED STATE */
+            if (c->state == rcpt) {
+                c->state++;
+                senddata(c->s, 354, 
+                        "%s", "Start mail input; end with <CRLF>.<CRLF>");
+                email = recvdata(c);
+                if (!email)
+                    senddata(c->s, 503, 
+                        "%s", "Bad sequence of commands");
+                else {
+                    if (!handleincoming(email, c))
+                        senddata(c->s, 550, 
+                            "%s", "Requested action not taken");
+                    else {
+                        log("Message %s successfully handled");
+                        senddata(c->s, 250, 
+                            "%s", "Requested mail action okay, completed");
+                        c->state++;
+                    }
+                }
+            }
+            else
+                senddata(c->s, 503, 
+                    "%s", "Bad sequence of commands");
+            
+            break;
+        
     }
+
     return;
 }
 
@@ -408,6 +665,7 @@ void mainloop(int32 s) {
         size = sizeof(struct s_connection);
         conn = (Connection *)malloc(size);
         zero($1 conn, $2 size);
+        conn->ip = sock.sin_addr.s_addr;
         conn->s = c;
         conn->state = connected;
 
@@ -422,8 +680,20 @@ void mainloop(int32 s) {
     }
 }
 
+void translate(Server *servers) {
+    Server *server;
+
+    for (server = servers; *(server->domain); server++)
+        server->ip = inet_addr(server->dotted);
+    
+    return;
+
+}
+
 int main(int argc, char *argv[]) {
     int32 s;
+    
+    translate(mx);
 
     if (argc < 2) {
         fprintf(stderr, "Usage: %s <our domain>\n", *argv);
@@ -488,4 +758,5 @@ int test(int argc, char *argv[]) {
 }
 */
 
-// lesson 5 00:38:50
+// lesson 6 01:09:28
+// claude --resume baaf7285-7586-4bf3-9259-abbca42e35fb

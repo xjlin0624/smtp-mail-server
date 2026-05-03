@@ -15,9 +15,10 @@
 #include <sys/stat.h>
 #include <fcntl.h>
 #include <ctype.h>
-#define DEBUG
-#define VERSION     "0.1"
-#define PORT        2525
+
+#undef DEBUG
+#define VERSION     "1.0"
+#define PORT        2526
 #define IP          INADDR_ANY
 
 typedef unsigned char int8;
@@ -30,7 +31,7 @@ enum e_state {
     idle = 0,
     connecting = 1,
     connected = 2,
-    hello = 3,
+    helo = 3,
     mail = 4,
     rcpt = 5,
     data = 6,
@@ -58,6 +59,7 @@ struct s_email {
 typedef struct s_email Email;
 
 enum e_cmd_ {
+    none = 0,
     ehlo = 1,
     mailfrom = 2,
     rcptto = 3,
@@ -76,13 +78,16 @@ struct s_connection {
     int32 s;
     int8 src[64];
     int8 dst[64];
+    int8 domain[64];
     State state;
+    int32 ip;
 };
 typedef struct s_connection Connection;
 
 struct s_server {
     int8 domain[64];
     int8 server[64];
+    int8 dotted[16];
     int32 ip;
 };
 typedef struct s_server Server;
@@ -94,11 +99,7 @@ typedef struct s_server Server;
 #define $c (char *)
 #define $i (int)
 
-#ifdef DEBUG
-    #define log(f, args...)             printf(f, ##args)
-#else
-    #define log(x, xs...) void
-#endif 
+#define log(f, args...)             printf(f, ##args) 
 
 #define sendcmd(_s, e, f, args...)  do {    \
     dprintf($i _s, f, ##args);              \
@@ -128,6 +129,7 @@ User *getuser(int8*);
 void fail(int8*);
 bool sendmail(Email*, Server*);
 bool strmatch(int8*, int8*); // might not need
+int8 *strmatch_(int8*, int8*);
 int8 *mailheader(Email*);
 Email *mkemail(int8*, int8*, int8*, int8*, int16);
 Server *mkserver(int8*, int8*, int32);
@@ -139,5 +141,7 @@ void senddata_(int32, int16, int8*);
 void mainloop(int32);
 Command *parse(int8*);
 void childloop(Connection*);
+void translate(Server*);
+Email *recvdata(Connection*);
+bool handleincoming(Email*, Connection*);
 int main(int, char**);
-

@@ -53,7 +53,7 @@ bool sendmail(Email *email, Server *server) {
             break;
         
         /* HELLO SENT */
-        case hello:
+        case helo:
             if (expect(s, $1 "250 "))
                 sendcmd(s, email, "MAIL FROM:<%s>\n", email->src);
             else 
